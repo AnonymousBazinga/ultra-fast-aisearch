@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Speed Search",
+  title: "fast.browse.dev",
   description: "Instant AI-powered search with real-time web results",
 };
 

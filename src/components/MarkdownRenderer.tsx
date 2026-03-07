@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
@@ -141,7 +142,7 @@ export default function MarkdownRenderer({
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkMath]}
+      remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeKatex, rehypeHighlight]}
       components={{
         a: ({ href, children }) => {
@@ -168,6 +169,30 @@ export default function MarkdownRenderer({
           >
             {children}
           </pre>
+        ),
+        table: ({ children }) => (
+          <div className="my-3 overflow-x-auto rounded-lg" style={{ border: "1px solid var(--color-border-light)" }}>
+            <table className="w-full border-collapse text-[13.5px]">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => (
+          <thead style={{ background: "var(--color-surface-secondary)" }}>{children}</thead>
+        ),
+        th: ({ children }) => (
+          <th
+            className="px-3 py-2 text-left text-[12.5px] font-semibold"
+            style={{ color: "var(--color-ink-secondary)", borderBottom: "1px solid var(--color-border-light)" }}
+          >
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td
+            className="px-3 py-2 text-[13px]"
+            style={{ color: "var(--color-ink-primary)", borderBottom: "1px solid var(--color-border-light)" }}
+          >
+            {children}
+          </td>
         ),
         code: ({ className, children, ...props }) => {
           const isBlock =

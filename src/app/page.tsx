@@ -322,34 +322,15 @@ export default function Home() {
     >
       {/* Header */}
       <header
-        className="flex flex-shrink-0 items-center justify-between border-b px-6 py-3"
-        style={{ borderColor: "var(--color-border-light)" }}
+        className="flex flex-shrink-0 items-center justify-between px-6 py-3"
       >
-        <div className="flex items-center gap-2.5">
-          <div
-            className="flex h-7 w-7 items-center justify-center rounded-lg"
-            style={{ background: "var(--color-ink-primary)" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M2 5L8 2L14 5L8 8L2 5Z" fill="white" opacity="0.9" />
-              <path
-                d="M2 8L8 11L14 8"
-                stroke="white"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity="0.6"
-              />
-              <path
-                d="M2 11L8 14L14 11"
-                stroke="white"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity="0.3"
-              />
-            </svg>
-          </div>
+        <div className="flex items-center gap-2">
+          <img
+            src="/logo.png"
+            alt="fast.browse.dev"
+            className="h-6 w-6"
+            style={{ objectFit: "contain" }}
+          />
           <h1
             className="text-[15px] font-semibold tracking-tight"
             style={{
@@ -357,7 +338,7 @@ export default function Home() {
               letterSpacing: "-0.02em",
             }}
           >
-            Speed Search
+            fast.browse.dev
           </h1>
         </div>
 
@@ -435,61 +416,15 @@ export default function Home() {
       </div>
 
       {/* Input area */}
-      <div
-        className="flex-shrink-0 border-t px-4 pb-4 pt-3"
-        style={{ borderColor: "var(--color-border-light)" }}
-      >
+      <div className="flex-shrink-0 px-4 pb-5 pt-2">
         <div className="mx-auto max-w-2xl">
-          {/* Agent mode toggle */}
-          <div className="mb-2 flex items-center justify-end">
-            <button
-              onClick={() => setAgentMode(!agentMode)}
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium transition-all duration-200"
-              style={{
-                background: agentMode
-                  ? "var(--color-accent-light)"
-                  : "transparent",
-                color: agentMode
-                  ? "var(--color-accent)"
-                  : "var(--color-ink-ghost)",
-              }}
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 16 16"
-                fill="none"
-                style={{
-                  color: agentMode
-                    ? "var(--color-accent)"
-                    : "var(--color-ink-ghost)",
-                }}
-              >
-                <path
-                  d="M8 2v4l2.5 1.5"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="6"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  opacity="0.5"
-                />
-              </svg>
-              {agentMode ? "Deep Research" : "Agent"}
-            </button>
-          </div>
-
           <ChatInput
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
             disabled={isLoading}
+            agentMode={agentMode}
+            onAgentModeChange={setAgentMode}
             placeholder={
               agentMode
                 ? "Ask a complex question for deep research..."
