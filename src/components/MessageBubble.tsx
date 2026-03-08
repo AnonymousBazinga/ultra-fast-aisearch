@@ -65,6 +65,7 @@ export default function MessageBubble({
             steps={message.researchSteps}
             status={message.researchStatus || "done"}
             totalSources={message.allSources?.length}
+            answerStarted={!!message.content}
           />
         )}
 
@@ -76,6 +77,7 @@ export default function MessageBubble({
               query={message.searchQuery}
               results={message.searchResults}
               status={message.searchStatus || "done"}
+              answerStarted={!!message.content}
             />
           )}
 

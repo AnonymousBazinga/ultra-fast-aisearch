@@ -9,6 +9,7 @@ interface DeepResearchTimelineProps {
   steps: ResearchStep[];
   status: "researching" | "answering" | "done";
   totalSources?: number;
+  answerStarted?: boolean;
 }
 
 function StepItem({ step }: { step: ResearchStep }) {
@@ -157,16 +158,16 @@ export default function DeepResearchTimeline({
   steps,
   status,
   totalSources,
+  answerStarted,
 }: DeepResearchTimelineProps) {
   const [collapsed, setCollapsed] = useState(false);
 
-  // Auto-collapse when answer starts
+  // Collapse immediately when answer content starts streaming
   useEffect(() => {
-    if (status === "done") {
-      const timer = setTimeout(() => setCollapsed(true), 1500);
-      return () => clearTimeout(timer);
+    if (answerStarted) {
+      setCollapsed(true);
     }
-  }, [status]);
+  }, [answerStarted]);
 
   return (
     <div className="mb-4">

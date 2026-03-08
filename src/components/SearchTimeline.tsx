@@ -9,12 +9,14 @@ interface SearchTimelineProps {
   query: string;
   results: SearchResult[];
   status: "searching" | "done";
+  answerStarted?: boolean;
 }
 
 export default function SearchTimeline({
   query,
   results,
   status,
+  answerStarted,
 }: SearchTimelineProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [visibleCount, setVisibleCount] = useState(0);
@@ -29,13 +31,12 @@ export default function SearchTimeline({
     }
   }, [results.length, visibleCount]);
 
-  // Auto-collapse after search is done (with delay)
+  // Collapse immediately when answer content starts streaming
   useEffect(() => {
-    if (status === "done" && results.length > 0) {
-      const timer = setTimeout(() => setCollapsed(true), 2400);
-      return () => clearTimeout(timer);
+    if (answerStarted) {
+      setCollapsed(true);
     }
-  }, [status, results.length]);
+  }, [answerStarted]);
 
   const visibleResults = results.slice(0, visibleCount);
 

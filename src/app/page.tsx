@@ -327,7 +327,7 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <img
             src="/logo.png"
-            alt="fast.browse.dev"
+            alt="browse.dev"
             className="h-6 w-6"
             style={{ objectFit: "contain" }}
           />
@@ -338,7 +338,7 @@ export default function Home() {
               letterSpacing: "-0.02em",
             }}
           >
-            fast.browse.dev
+            browse.dev
           </h1>
         </div>
 
