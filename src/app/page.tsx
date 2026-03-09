@@ -62,13 +62,19 @@ export default function Home() {
       )
     );
 
+    // Build conversation history for context
+    const conversationHistory = messages
+      .filter((m) => m.content)
+      .map((m) => ({ role: m.role, content: m.content }));
+    conversationHistory.push({ role: "user", content: query });
+
     // Stream answer
     try {
       const chatRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: query }],
+          messages: conversationHistory,
           searchResults: searchResults.map((r) => ({
             title: r.title,
             url: r.url,
