@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { chatJimmy } from "@/lib/jimmy";
 
+export const runtime = "edge";
+
 function stripTrailingReferences(text: string): string {
   return text
     .replace(
