@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
-
-const JIMMY_API_URL = process.env.JIMMY_API_URL || "http://localhost:4100/v1";
+import { chatJimmy } from "@/lib/jimmy";
 
 function stripTrailingReferences(text: string): string {
   return text
@@ -49,35 +48,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const apiMessages = [
-    { role: "system", content: systemContent },
-    ...messages,
-  ];
-
   try {
-    // Use non-streaming so we can strip trailing references before sending
-    // (Jimmy returns in ~55ms anyway, so latency is negligible)
-    const response = await fetch(`${JIMMY_API_URL}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3.1-8B",
-        messages: apiMessages,
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Jimmy API error:", response.status, errorText);
-      return new Response(
-        JSON.stringify({ error: "Chat API failed" }),
-        { status: response.status, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const data = await response.json();
-    let content = data.choices?.[0]?.message?.content || "";
+    let content = await chatJimmy([
+      { role: "system", content: systemContent },
+      ...messages,
+    ]);
     content = stripTrailingReferences(content);
 
     // Re-emit as SSE chunks so the client streaming logic still works

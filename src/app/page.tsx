@@ -105,7 +105,7 @@ export default function Home() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? { ...m, content: "Failed to connect to chat service. Make sure Jimmy Proxy is running at localhost:4100." }
+            ? { ...m, content: "Failed to connect to chat service. ChatJimmy may be temporarily unavailable." }
             : m
         )
       );
@@ -287,7 +287,7 @@ export default function Home() {
           m.id === assistantId
             ? {
                 ...m,
-                content: "Failed to run deep research. Make sure Jimmy Proxy is running at localhost:4100.",
+                content: "Failed to run deep research. ChatJimmy may be temporarily unavailable.",
                 researchStatus: "done" as const,
               }
             : m

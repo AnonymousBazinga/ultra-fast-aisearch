@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
+import { chatJimmy } from "@/lib/jimmy";
 
-const JIMMY_API_URL = process.env.JIMMY_API_URL || "http://localhost:4100/v1";
 const EXA_API_KEY = process.env.EXA_API_KEY || "";
 
 // Controlled research tree:
@@ -47,25 +47,10 @@ async function synthesize(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const response = await fetch(`${JIMMY_API_URL}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "llama3.1-8B",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      stream: false,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Llama API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  return chatJimmy([
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ]);
 }
 
 // ── Parse follow-up questions from Llama response ──────────────────
@@ -313,32 +298,10 @@ export async function POST(req: NextRequest) {
           encoder.encode(sseEvent("answer_start", {}))
         );
 
-        // Use non-streaming for reliability, then emit as chunks
-        const answerResponse = await fetch(
-          `${JIMMY_API_URL}/chat/completions`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "llama3.1-8B",
-              messages: [
-                { role: "system", content: finalSystemPrompt },
-                { role: "user", content: finalUserPrompt },
-              ],
-              stream: false,
-            }),
-          }
-        );
-
-        if (!answerResponse.ok) {
-          throw new Error(
-            `Final answer failed: ${answerResponse.status}`
-          );
-        }
-
-        const answerData = await answerResponse.json();
-        let fullAnswer =
-          answerData.choices?.[0]?.message?.content || "";
+        let fullAnswer = await chatJimmy([
+          { role: "system", content: finalSystemPrompt },
+          { role: "user", content: finalUserPrompt },
+        ]);
 
         // Strip trailing references/bibliography that Llama sometimes adds
         fullAnswer = fullAnswer
@@ -358,7 +321,6 @@ export async function POST(req: NextRequest) {
         );
 
         // Emit answer in small chunks to simulate streaming
-        // (Jimmy returns full response in ~55ms anyway)
         const chunkSize = 12;
         for (let i = 0; i < fullAnswer.length; i += chunkSize) {
           const chunk = fullAnswer.slice(i, i + chunkSize);
