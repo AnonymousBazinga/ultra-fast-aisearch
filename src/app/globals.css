@@ -83,10 +83,16 @@ body {
 
 /* Markdown prose styling */
 .prose {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   line-height: 1.7;
   letter-spacing: -0.006em;
   color: var(--color-ink-primary);
+}
+
+@media (min-width: 640px) {
+  .prose {
+    font-size: 0.9375rem;
+  }
 }
 
 .prose > *:first-child {

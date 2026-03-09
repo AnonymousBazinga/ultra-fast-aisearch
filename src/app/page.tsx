@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Message, SearchResult, ResearchStep } from "@/lib/types";
 import { generateId, parseSSEStream } from "@/lib/utils";
 import ChatInput from "@/components/ChatInput";
@@ -14,10 +14,37 @@ export default function Home() {
   const [agentMode, setAgentMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const scrollTargetRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
+
+  // Scroll the newly submitted user message to the top of the viewport
+  useEffect(() => {
+    if (!scrollTargetRef.current) return;
+    const targetId = scrollTargetRef.current;
+    scrollTargetRef.current = null;
+    // Double rAF to ensure DOM has painted after React commit
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(
+          `[data-message-id="${targetId}"]`
+        );
+        const container = chatContainerRef.current;
+        if (el && container) {
+          const elRect = el.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const scrollTop =
+            container.scrollTop + elRect.top - containerRect.top - 12;
+          container.scrollTo({
+            top: Math.max(0, scrollTop),
+            behavior: "smooth",
+          });
+        }
+      });
+    });
+  }, [messages]);
 
   // ── Normal (instant) search + answer ─────────────────────────────
 
@@ -33,9 +60,12 @@ export default function Home() {
       timestamp: Date.now(),
     };
 
+    const userMsgId = generateId();
+    scrollTargetRef.current = userMsgId;
+
     setMessages((prev) => [
       ...prev,
-      { id: generateId(), role: "user", content: query, timestamp: Date.now() },
+      { id: userMsgId, role: "user", content: query, timestamp: Date.now() },
       assistantMessage,
     ]);
 
@@ -124,9 +154,12 @@ export default function Home() {
   const handleDeepResearch = async (query: string) => {
     const assistantId = generateId();
 
+    const userMsgId = generateId();
+    scrollTargetRef.current = userMsgId;
+
     setMessages((prev) => [
       ...prev,
-      { id: generateId(), role: "user", content: query, timestamp: Date.now() },
+      { id: userMsgId, role: "user", content: query, timestamp: Date.now() },
       {
         id: assistantId,
         role: "assistant",
@@ -328,7 +361,7 @@ export default function Home() {
     >
       {/* Header */}
       <header
-        className="flex flex-shrink-0 items-center justify-between px-6 py-3"
+        className="flex flex-shrink-0 items-center justify-between px-4 py-3 sm:px-6"
       >
         <div className="flex items-center gap-2">
           <img
@@ -353,18 +386,16 @@ export default function Home() {
 
       {/* Main content */}
       <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
-        <AnimatePresence>
           {!hasMessages && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.3 }}
               className="flex h-full flex-col items-center justify-center px-6"
             >
               <div className="max-w-lg text-center">
                 <h2
-                  className="mb-3 text-[28px] font-semibold"
+                  className="mb-3 text-[24px] font-semibold sm:text-[28px]"
                   style={{
                     color: "var(--color-ink-primary)",
                     letterSpacing: "-0.03em",
@@ -399,11 +430,10 @@ export default function Home() {
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
 
         {hasMessages && (
-          <div className="mx-auto max-w-2xl px-4 py-6">
-            <div className="flex flex-col gap-5">
+          <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
+            <div className="flex flex-col gap-4 sm:gap-5">
               {messages.map((message) => (
                 <MessageBubble
                   key={message.id}
@@ -416,13 +446,14 @@ export default function Home() {
                 />
               ))}
             </div>
-            <div ref={messagesEndRef} className="h-4" />
+            {/* Spacer tall enough so the last message can be scrolled to the top */}
+            <div ref={messagesEndRef} style={{ minHeight: "calc(100dvh - 160px)" }} />
           </div>
         )}
       </div>
 
       {/* Input area */}
-      <div className="flex-shrink-0 px-4 pb-5 pt-2">
+      <div className="flex-shrink-0 px-4 pb-4 pt-2 sm:pb-5">
         <div className="mx-auto max-w-2xl">
           <ChatInput
             value={input}
