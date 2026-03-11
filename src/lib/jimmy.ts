@@ -1,5 +1,5 @@
 const UPSTREAM_URL = "https://chatjimmy.ai/api/chat";
-const MAX_SYSTEM_PROMPT = 28000;
+const MAX_SYSTEM_PROMPT = 20000;
 
 /**
  * Call ChatJimmy's Llama 3.1 8B directly, bypassing the proxy.
