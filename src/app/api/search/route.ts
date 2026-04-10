@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
         contents: {
           text: { maxCharacters: 1500 },
           highlights: { numSentences: 3 },
+          livecrawl: "never",
         },
       }),
     });
