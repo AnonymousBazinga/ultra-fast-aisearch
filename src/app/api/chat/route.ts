@@ -17,7 +17,9 @@ function stripTrailingReferences(text: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const tEntry = Date.now();
   const { messages, searchResults } = await req.json();
+  const tParsed = Date.now();
 
   // Build the system prompt with search context
   let systemContent =
@@ -50,12 +52,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const tPromptBuilt = Date.now();
+
   try {
     let content = await chatJimmy([
       { role: "system", content: systemContent },
       ...messages,
     ]);
+    const tChatjimmyDone = Date.now();
     content = stripTrailingReferences(content);
+    const tStripped = Date.now();
+
+    const serverTiming = [
+      `req_parse;dur=${tParsed - tEntry}`,
+      `build_prompt;dur=${tPromptBuilt - tParsed}`,
+      `chatjimmy;dur=${tChatjimmyDone - tPromptBuilt}`,
+      `strip;dur=${tStripped - tChatjimmyDone}`,
+      `total;dur=${tStripped - tEntry}`,
+    ].join(", ");
 
     // Re-emit as SSE chunks so the client streaming logic still works
     const encoder = new TextEncoder();
@@ -79,6 +93,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        "Server-Timing": serverTiming,
       },
     });
   } catch (error) {

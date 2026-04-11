@@ -7,6 +7,106 @@ import { generateId, parseSSEStream } from "@/lib/utils";
 import ChatInput from "@/components/ChatInput";
 import MessageBubble from "@/components/MessageBubble";
 
+// ── Latency diagnostic logger ─────────────────────────────────────
+// Logs every /api/search and /api/chat request with client-side
+// timings + parsed Server-Timing header from the edge route, so
+// cold-start events are self-diagnosing in DevTools console.
+let lastRequestEndWall = 0;
+
+function parseServerTiming(header: string | null): Record<string, number> {
+  if (!header) return {};
+  const out: Record<string, number> = {};
+  for (const entry of header.split(",")) {
+    const parts = entry.trim().split(";");
+    const name = parts[0]?.trim();
+    const durPart = parts.find((p) => p.trim().startsWith("dur="));
+    if (name && durPart) {
+      const val = parseFloat(durPart.trim().slice(4));
+      if (!isNaN(val)) out[name] = val;
+    }
+  }
+  return out;
+}
+
+function logTiming(
+  label: string,
+  meta: {
+    query?: string;
+    tStartWall: number;
+    tFirstByteWall: number;
+    tEndWall: number;
+    serverTiming: string | null;
+    vercelId: string | null;
+  }
+) {
+  const clientTotal = meta.tEndWall - meta.tStartWall;
+  const firstByte = meta.tFirstByteWall - meta.tStartWall;
+  const bodyRead = meta.tEndWall - meta.tFirstByteWall;
+  const idleBefore =
+    lastRequestEndWall > 0
+      ? Math.round((meta.tStartWall - lastRequestEndWall) / 1000)
+      : null;
+
+  const isSlow = clientTotal > 1500;
+  const isFast = clientTotal < 600;
+  const color = isSlow ? "#e11d48" : isFast ? "#16a34a" : "#f59e0b";
+  const weight = isSlow ? "bold" : "normal";
+  const slowTag = isSlow ? " ⚠ SLOW" : "";
+
+  const st = parseServerTiming(meta.serverTiming);
+  const queryFrag = meta.query ? ` "${meta.query.slice(0, 50)}"` : "";
+  const idleFrag = idleBefore !== null ? ` · idle ${idleBefore}s` : "";
+
+  console.groupCollapsed(
+    `%c[${label}]%c ${clientTotal.toFixed(0)}ms%c${queryFrag}${idleFrag}${slowTag}`,
+    "color: #888; font-weight: normal",
+    `color: ${color}; font-weight: ${weight}`,
+    "color: #666; font-weight: normal"
+  );
+
+  console.log("%cClient (DevTools-measured)", "font-weight: bold; color: #0ea5e9");
+  console.log(`  total:        ${clientTotal}ms`);
+  console.log(`  first_byte:   ${firstByte}ms  (fetch → response headers)`);
+  console.log(`  body_read:    ${bodyRead}ms  (headers → body fully received)`);
+
+  if (Object.keys(st).length > 0) {
+    console.log(
+      "%cServer (Server-Timing header from Vercel edge route)",
+      "font-weight: bold; color: #8b5cf6"
+    );
+    for (const [k, v] of Object.entries(st)) {
+      const isBottleneck = v > clientTotal * 0.5;
+      console.log(
+        `  %c${k.padEnd(14)}%c ${v}ms${isBottleneck ? " ← bottleneck" : ""}`,
+        isBottleneck ? "color: #e11d48; font-weight: bold" : "",
+        ""
+      );
+    }
+    const clientOnly = clientTotal - (st["total"] ?? 0);
+    console.log(
+      `  ${"(network)".padEnd(14)} ~${clientOnly}ms  (client ↔ Vercel edge, i.e. your ISP path)`
+    );
+  } else {
+    console.log(
+      "%c(no Server-Timing header — old deployment or error response)",
+      "color: #999"
+    );
+  }
+
+  console.log("%cInfra", "font-weight: bold; color: #f97316");
+  console.log(`  vercel-id:    ${meta.vercelId ?? "—"}`);
+  console.log(`  timestamp:    ${new Date(meta.tEndWall).toISOString()}`);
+  if (idleBefore !== null) {
+    console.log(`  idle_before:  ${idleBefore}s since previous request`);
+  } else {
+    console.log(`  idle_before:  (first request this session)`);
+  }
+
+  console.groupEnd();
+
+  lastRequestEndWall = meta.tEndWall;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -72,13 +172,25 @@ export default function Home() {
     // Search
     let searchResults: SearchResult[] = [];
     try {
+      const tStartWall = Date.now();
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
       });
+      const tFirstByteWall = Date.now();
       if (res.ok) {
-        searchResults = (await res.json()).results || [];
+        const body = await res.json();
+        const tEndWall = Date.now();
+        searchResults = body.results || [];
+        logTiming("Search", {
+          query,
+          tStartWall,
+          tFirstByteWall,
+          tEndWall,
+          serverTiming: res.headers.get("Server-Timing"),
+          vercelId: res.headers.get("x-vercel-id"),
+        });
       }
     } catch (e) {
       console.error("Search failed:", e);
@@ -100,6 +212,7 @@ export default function Home() {
 
     // Stream answer
     try {
+      const tChatStartWall = Date.now();
       const chatRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,8 +226,12 @@ export default function Home() {
           })),
         }),
       });
+      const tChatFirstByteWall = Date.now();
 
       if (!chatRes.ok || !chatRes.body) throw new Error("Chat failed");
+
+      const chatServerTiming = chatRes.headers.get("Server-Timing");
+      const chatVercelId = chatRes.headers.get("x-vercel-id");
 
       const reader = chatRes.body.getReader();
       const decoder = new TextDecoder();
@@ -133,7 +250,19 @@ export default function Home() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) { setIsLoading(false); break; }
+        if (done) {
+          const tChatEndWall = Date.now();
+          logTiming("Chat", {
+            query,
+            tStartWall: tChatStartWall,
+            tFirstByteWall: tChatFirstByteWall,
+            tEndWall: tChatEndWall,
+            serverTiming: chatServerTiming,
+            vercelId: chatVercelId,
+          });
+          setIsLoading(false);
+          break;
+        }
         stream.processChunk(decoder.decode(value, { stream: true }));
       }
     } catch (e) {
