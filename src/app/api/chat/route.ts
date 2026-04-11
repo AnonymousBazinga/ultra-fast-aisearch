@@ -94,6 +94,8 @@ export async function POST(req: NextRequest) {
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "Server-Timing": serverTiming,
+        "x-debug-timing": serverTiming,
+        "Access-Control-Expose-Headers": "Server-Timing, x-debug-timing",
       },
     });
   } catch (error) {

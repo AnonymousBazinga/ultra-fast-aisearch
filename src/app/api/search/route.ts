@@ -57,8 +57,13 @@ export async function POST(req: NextRequest) {
       `total;dur=${tFetchBody - tEntry}`,
     ].join(", ");
 
-    return NextResponse.json(data, {
-      headers: { "Server-Timing": serverTiming },
+    return new NextResponse(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+        "Server-Timing": serverTiming,
+        "x-debug-timing": serverTiming,
+        "Access-Control-Expose-Headers": "Server-Timing, x-debug-timing",
+      },
     });
   } catch (error) {
     console.error("Search error:", error);

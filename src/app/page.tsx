@@ -188,7 +188,9 @@ export default function Home() {
           tStartWall,
           tFirstByteWall,
           tEndWall,
-          serverTiming: res.headers.get("Server-Timing"),
+          serverTiming:
+            res.headers.get("Server-Timing") ??
+            res.headers.get("x-debug-timing"),
           vercelId: res.headers.get("x-vercel-id"),
         });
       }
@@ -230,7 +232,9 @@ export default function Home() {
 
       if (!chatRes.ok || !chatRes.body) throw new Error("Chat failed");
 
-      const chatServerTiming = chatRes.headers.get("Server-Timing");
+      const chatServerTiming =
+        chatRes.headers.get("Server-Timing") ??
+        chatRes.headers.get("x-debug-timing");
       const chatVercelId = chatRes.headers.get("x-vercel-id");
 
       const reader = chatRes.body.getReader();
