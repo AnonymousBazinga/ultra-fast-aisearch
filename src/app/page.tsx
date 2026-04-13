@@ -115,12 +115,33 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const scrollTargetRef = useRef<string | null>(null);
+  const prevLoadingRef = useRef(false);
+
+  // Directional spacer animation: instant on expand (so scroll math has room),
+  // smooth on collapse (avoids a jarring pop when streaming ends).
+  useEffect(() => {
+    const el = messagesEndRef.current;
+    if (!el) return;
+    const wasLoading = prevLoadingRef.current;
+    prevLoadingRef.current = isLoading;
+    if (isLoading && !wasLoading) {
+      // Expanding: snap, no transition
+      el.style.transition = "none";
+      el.style.minHeight = "calc(100dvh - 160px)";
+    } else if (!isLoading && wasLoading) {
+      // Collapsing: smooth
+      el.style.transition = "min-height 280ms ease-out";
+      el.style.minHeight = "0px";
+    }
+  }, [isLoading]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  // Scroll the newly submitted user message to the top of the viewport
+  // Scroll the newly submitted user message to the top of the viewport.
+  // Relies on the bottom spacer having expanded (instantly — no CSS transition
+  // on expand) so there's enough scroll room for the scroll to reach the target.
   useEffect(() => {
     if (!scrollTargetRef.current) return;
     const targetId = scrollTargetRef.current;
@@ -132,16 +153,18 @@ export default function Home() {
           `[data-message-id="${targetId}"]`
         );
         const container = chatContainerRef.current;
-        if (el && container) {
-          const elRect = el.getBoundingClientRect();
-          const containerRect = container.getBoundingClientRect();
-          const scrollTop =
-            container.scrollTop + elRect.top - containerRect.top - 12;
-          container.scrollTo({
-            top: Math.max(0, scrollTop),
-            behavior: "smooth",
-          });
-        }
+        if (!el || !container) return;
+        // Force a synchronous layout read so the spacer's just-committed
+        // min-height is reflected in scrollHeight before we compute scrollTop.
+        void container.scrollHeight;
+        const elRect = el.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const scrollTop =
+          container.scrollTop + elRect.top - containerRect.top - 12;
+        container.scrollTo({
+          top: Math.max(0, scrollTop),
+          behavior: "smooth",
+        });
       });
     });
   }, [messages]);
@@ -579,16 +602,12 @@ export default function Home() {
                 />
               ))}
             </div>
-            {/* Spacer: only expanded while a new message is being processed, so
-                the scroll-to-top animation has room. Collapses after streaming
-                to avoid creating a full viewport of empty space below the response. */}
-            <div
-              ref={messagesEndRef}
-              style={{
-                minHeight: isLoading ? "calc(100dvh - 160px)" : "0",
-                transition: "min-height 200ms ease",
-              }}
-            />
+            {/* Spacer: its minHeight is controlled imperatively via the
+                directional-animation useEffect above (instant expand when a
+                message starts streaming, smooth collapse when it finishes).
+                DO NOT add a style prop here — React would re-apply it every
+                render and fight the imperative updates. */}
+            <div ref={messagesEndRef} />
           </div>
         )}
       </div>
