@@ -44,13 +44,18 @@ export default function MessageBubble({
     ? message.allSources
     : message.searchResults;
 
-  // Determine if we're in the "waiting for content" state
+  // Determine if we're in the "waiting for content" state.
+  // For regular messages there are two pre-content phases that should show
+  // loading dots:
+  //   1. No search query yet (we're in the router phase, deciding direct vs
+  //      search — no SearchTimeline is rendered yet)
+  //   2. Search is done but the answer hasn't started streaming yet
   const isWaitingForContent =
     !message.content &&
     isStreaming &&
     (message.isDeepResearch
       ? message.researchStatus === "answering"
-      : message.searchStatus === "done");
+      : message.searchStatus === "done" || !message.searchQuery);
 
   return (
     <motion.div

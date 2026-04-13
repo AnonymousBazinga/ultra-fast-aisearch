@@ -1,6 +1,14 @@
 import { NextRequest } from "next/server";
 import { chatJimmy } from "@/lib/jimmy";
+import {
+  buildAnswerSystemPrompt,
+  buildRouterSystemPrompt,
+  todayISODate,
+} from "@/lib/prompts";
 
+// Strip trailing "References" / "Sources" sections that Llama sometimes appends
+// despite being told not to. Only applied in "answer" mode — in "router" mode
+// we need the raw output (including the literal "SEARCH:" prefix) intact.
 function stripTrailingReferences(text: string): string {
   return text
     .replace(
@@ -14,41 +22,31 @@ function stripTrailingReferences(text: string): string {
     .trimEnd();
 }
 
+interface RequestBody {
+  messages: Array<{ role: string; content: string }>;
+  searchResults?: Array<{
+    title?: string;
+    url?: string;
+    text?: string;
+    highlights?: string[];
+  }>;
+  mode?: "router" | "answer";
+}
+
 export async function POST(req: NextRequest) {
   const tEntry = Date.now();
-  const { messages, searchResults } = await req.json();
+  const body = (await req.json()) as RequestBody;
   const tParsed = Date.now();
 
-  // Build the system prompt with search context
-  let systemContent =
-    "You are Speed Search, a helpful AI assistant. " +
-    "Use markdown formatting. Be concise but thorough. " +
-    "Use bold for key terms. Use bullet points for lists. Keep paragraphs short.";
+  const { messages = [], searchResults = [], mode } = body;
+  const effectiveMode: "router" | "answer" =
+    mode === "router" ? "router" : "answer";
 
-  if (searchResults && searchResults.length > 0) {
-    systemContent +=
-      "\n\nIMPORTANT RULES:\n" +
-      "1. Cite sources INLINE using [1], [2], [3] right after each claim. Example: \"Rust is fast [1] and safe [2].\"\n" +
-      "2. Your response MUST END after your analysis. Do NOT append any section titled Sources, References, Bibliography, or Citations.\n" +
-      "3. Do NOT list source titles or URLs anywhere in your response.\n" +
-      "4. STOP writing after your final paragraph. Nothing else after that.\n\n" +
-      "Sources:\n";
-    searchResults.forEach(
-      (
-        result: { title: string; url: string; text?: string; highlights?: string[] },
-        i: number
-      ) => {
-        systemContent += `[${i + 1}] "${result.title}" (${result.url})\n`;
-        if (result.text) {
-          systemContent += `Content: ${result.text.slice(0, 800)}\n`;
-        }
-        if (result.highlights && result.highlights.length > 0) {
-          systemContent += `Key points: ${result.highlights.join(" | ")}\n`;
-        }
-        systemContent += "\n";
-      }
-    );
-  }
+  const today = todayISODate();
+  const systemContent =
+    effectiveMode === "router"
+      ? buildRouterSystemPrompt(today)
+      : buildAnswerSystemPrompt(searchResults, today);
 
   const tPromptBuilt = Date.now();
 
@@ -58,10 +56,14 @@ export async function POST(req: NextRequest) {
       ...messages,
     ]);
     const tChatjimmyDone = Date.now();
-    content = stripTrailingReferences(content);
+
+    if (effectiveMode === "answer") {
+      content = stripTrailingReferences(content);
+    }
     const tStripped = Date.now();
 
     const serverTiming = [
+      `mode;desc="${effectiveMode}"`,
       `req_parse;dur=${tParsed - tEntry}`,
       `build_prompt;dur=${tPromptBuilt - tParsed}`,
       `chatjimmy;dur=${tChatjimmyDone - tPromptBuilt}`,

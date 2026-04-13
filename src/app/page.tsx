@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Message, SearchResult, ResearchStep } from "@/lib/types";
-import { generateId, parseSSEStream } from "@/lib/utils";
+import { generateId, parseSSEStream, stripCitations } from "@/lib/utils";
 import ChatInput from "@/components/ChatInput";
 import MessageBubble from "@/components/MessageBubble";
 
@@ -172,14 +172,16 @@ export default function Home() {
   // ── Normal (instant) search + answer ─────────────────────────────
 
   const handleInstantSubmit = async (query: string) => {
+    // ── Setup ───────────────────────────────────────────────────────
+    // Create the assistant placeholder WITHOUT searchQuery/searchResults so
+    // the SearchTimeline component stays hidden until we actually decide to
+    // search. Loading dots will show via the `!searchQuery` branch of
+    // isWaitingForContent.
     const assistantId = generateId();
     const assistantMessage: Message = {
       id: assistantId,
       role: "assistant",
       content: "",
-      searchQuery: query,
-      searchResults: [],
-      searchStatus: "searching",
       timestamp: Date.now(),
     };
 
@@ -192,53 +194,189 @@ export default function Home() {
       assistantMessage,
     ]);
 
-    // Search
-    let searchResults: SearchResult[] = [];
-    try {
-      const tStartWall = Date.now();
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-      });
-      const tFirstByteWall = Date.now();
-      if (res.ok) {
-        const body = await res.json();
-        const tEndWall = Date.now();
-        searchResults = body.results || [];
-        logTiming("Search", {
-          query,
-          tStartWall,
-          tFirstByteWall,
-          tEndWall,
-          serverTiming:
-            res.headers.get("Server-Timing") ??
-            res.headers.get("x-debug-timing"),
-          vercelId: res.headers.get("x-vercel-id"),
-        });
-      }
-    } catch (e) {
-      console.error("Search failed:", e);
-    }
-
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === assistantId
-          ? { ...m, searchResults, searchStatus: "done" as const }
-          : m
-      )
-    );
-
-    // Build conversation history for context
+    // Build clean conversation history. We strip inline citation markers
+    // ([1], [2], ...) from past assistant messages because those numbers
+    // refer to sources from PREVIOUS turns — sources that are no longer in
+    // the LLM's context. Leaving ghost citations in the history causes the
+    // model to conflate old numbers with the current turn's sources and
+    // hallucinate / misattribute.
     const conversationHistory = messages
       .filter((m) => m.content)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({
+        role: m.role,
+        content:
+          m.role === "assistant" ? stripCitations(m.content) : m.content,
+      }));
     conversationHistory.push({ role: "user", content: query });
 
-    // Stream answer
     try {
-      const tChatStartWall = Date.now();
-      const chatRes = await fetch("/api/chat", {
+      // ── Phase 1: Router chat ──────────────────────────────────────
+      // Fire /api/chat with mode: "router". The model will either respond
+      // directly (greeting, small talk, follow-up answerable from context)
+      // OR emit "SEARCH: <refined query>" as its first line. We stream its
+      // output and watch the first ~10 characters to decide which branch
+      // we're in, then behave accordingly.
+      const tRouterStartWall = Date.now();
+      const routerRes = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: conversationHistory,
+          mode: "router",
+        }),
+      });
+      const tRouterFirstByteWall = Date.now();
+
+      if (!routerRes.ok || !routerRes.body) throw new Error("Router failed");
+
+      const routerServerTiming =
+        routerRes.headers.get("Server-Timing") ??
+        routerRes.headers.get("x-debug-timing");
+      const routerVercelId = routerRes.headers.get("x-vercel-id");
+
+      const routerReader = routerRes.body.getReader();
+      const routerDecoder = new TextDecoder();
+      let routerContent = "";
+      let routerDecision: "direct" | "search" | null = null;
+
+      const routerParser = parseSSEStream(
+        (text) => {
+          routerContent += text;
+
+          // Decide direction once we have enough text to be confident.
+          if (
+            routerDecision === null &&
+            routerContent.trimStart().length >= 10
+          ) {
+            const trimmedUpper = routerContent.trimStart().toUpperCase();
+            routerDecision = trimmedUpper.startsWith("SEARCH:")
+              ? "search"
+              : "direct";
+          }
+
+          // In direct mode, stream the router's output straight to the UI.
+          // In search mode, we discard the UI update — the router's output
+          // is just the marker/query, not user-visible content.
+          if (routerDecision === "direct") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: routerContent } : m
+              )
+            );
+          }
+        },
+        () => {}
+      );
+
+      while (true) {
+        const { done, value } = await routerReader.read();
+        if (done) break;
+        routerParser.processChunk(routerDecoder.decode(value, { stream: true }));
+      }
+
+      const tRouterEndWall = Date.now();
+
+      // If the response was very short (< 10 chars) we never got a chance
+      // to decide — default to direct and flush whatever we got.
+      if (routerDecision === null) {
+        routerDecision = "direct";
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: routerContent || "…" }
+              : m
+          )
+        );
+      }
+
+      logTiming(`Chat:router`, {
+        query,
+        tStartWall: tRouterStartWall,
+        tFirstByteWall: tRouterFirstByteWall,
+        tEndWall: tRouterEndWall,
+        serverTiming: routerServerTiming,
+        vercelId: routerVercelId,
+      });
+
+      // ── Direct path: done ────────────────────────────────────────
+      if (routerDecision === "direct") {
+        setIsLoading(false);
+        return;
+      }
+
+      // ── Search path: extract the refined query ──────────────────
+      // The router's output looks like:
+      //   SEARCH: <refined query>\n
+      // or:
+      //   SEARCH: <refined query>
+      // We slice after "SEARCH:" (case-insensitive), take up to the first
+      // newline if present, and fall back to the user's raw query on any
+      // parse failure.
+      const trimmed = routerContent.trimStart();
+      const afterMarker = trimmed.slice("SEARCH:".length);
+      const newlineIdx = afterMarker.indexOf("\n");
+      const rawQuery =
+        newlineIdx >= 0 ? afterMarker.slice(0, newlineIdx) : afterMarker;
+      const refinedQuery = rawQuery.trim() || query;
+
+      // Now we know we're searching. Show the SearchTimeline with a
+      // spinner and the refined query; clear content (which may transiently
+      // contain the "SEARCH:" marker if the decision branch missed an early
+      // update — it shouldn't, but belt-and-suspenders).
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                content: "",
+                searchQuery: refinedQuery,
+                searchResults: [],
+                searchStatus: "searching" as const,
+              }
+            : m
+        )
+      );
+
+      // ── Phase 2a: Exa search with the refined query ─────────────
+      let searchResults: SearchResult[] = [];
+      try {
+        const tSearchStartWall = Date.now();
+        const searchRes = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: refinedQuery }),
+        });
+        const tSearchFirstByteWall = Date.now();
+        if (searchRes.ok) {
+          const body = await searchRes.json();
+          const tSearchEndWall = Date.now();
+          searchResults = body.results || [];
+          logTiming("Search", {
+            query: refinedQuery,
+            tStartWall: tSearchStartWall,
+            tFirstByteWall: tSearchFirstByteWall,
+            tEndWall: tSearchEndWall,
+            serverTiming:
+              searchRes.headers.get("Server-Timing") ??
+              searchRes.headers.get("x-debug-timing"),
+            vercelId: searchRes.headers.get("x-vercel-id"),
+          });
+        }
+      } catch (e) {
+        console.error("Search failed:", e);
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, searchResults, searchStatus: "done" as const }
+            : m
+        )
+      );
+
+      // ── Phase 2b: Answer chat with sources ──────────────────────
+      const tAnswerStartWall = Date.now();
+      const answerRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -249,55 +387,62 @@ export default function Home() {
             text: r.text,
             highlights: r.highlights,
           })),
+          mode: "answer",
         }),
       });
-      const tChatFirstByteWall = Date.now();
+      const tAnswerFirstByteWall = Date.now();
 
-      if (!chatRes.ok || !chatRes.body) throw new Error("Chat failed");
+      if (!answerRes.ok || !answerRes.body) throw new Error("Answer failed");
 
-      const chatServerTiming =
-        chatRes.headers.get("Server-Timing") ??
-        chatRes.headers.get("x-debug-timing");
-      const chatVercelId = chatRes.headers.get("x-vercel-id");
+      const answerServerTiming =
+        answerRes.headers.get("Server-Timing") ??
+        answerRes.headers.get("x-debug-timing");
+      const answerVercelId = answerRes.headers.get("x-vercel-id");
 
-      const reader = chatRes.body.getReader();
-      const decoder = new TextDecoder();
-      let fullContent = "";
+      const answerReader = answerRes.body.getReader();
+      const answerDecoder = new TextDecoder();
+      let answerContent = "";
 
-      const stream = parseSSEStream(
+      const answerParser = parseSSEStream(
         (text) => {
-          fullContent += text;
-          const c = fullContent;
+          answerContent += text;
           setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, content: c } : m))
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, content: answerContent } : m
+            )
           );
         },
-        () => setIsLoading(false)
+        () => {}
       );
 
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          const tChatEndWall = Date.now();
-          logTiming("Chat", {
-            query,
-            tStartWall: tChatStartWall,
-            tFirstByteWall: tChatFirstByteWall,
-            tEndWall: tChatEndWall,
-            serverTiming: chatServerTiming,
-            vercelId: chatVercelId,
-          });
-          setIsLoading(false);
-          break;
-        }
-        stream.processChunk(decoder.decode(value, { stream: true }));
+        const { done, value } = await answerReader.read();
+        if (done) break;
+        answerParser.processChunk(answerDecoder.decode(value, { stream: true }));
       }
+
+      const tAnswerEndWall = Date.now();
+      logTiming("Chat:answer", {
+        query: refinedQuery,
+        tStartWall: tAnswerStartWall,
+        tFirstByteWall: tAnswerFirstByteWall,
+        tEndWall: tAnswerEndWall,
+        serverTiming: answerServerTiming,
+        vercelId: answerVercelId,
+      });
+
+      setIsLoading(false);
     } catch (e) {
       console.error("Chat failed:", e);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? { ...m, content: "Failed to connect to chat service. ChatJimmy may be temporarily unavailable." }
+            ? {
+                ...m,
+                content:
+                  "Failed to connect to chat service. ChatJimmy may be temporarily unavailable.",
+                searchStatus: "done" as const,
+              }
             : m
         )
       );
@@ -522,7 +667,7 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <img
             src="/logo.png"
-            alt="browse.dev"
+            alt="pin"
             className="h-6 w-6"
             style={{ objectFit: "contain" }}
           />
@@ -533,7 +678,7 @@ export default function Home() {
               letterSpacing: "-0.02em",
             }}
           >
-            browse.dev
+            pin
           </h1>
         </div>
 

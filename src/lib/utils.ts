@@ -23,6 +23,18 @@ export function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+// Remove inline citation markers like [1], [2], [1, 2], [1][2] from LLM output.
+// Used when building conversation history so past assistant messages don't
+// carry citation numbers that reference sources which are no longer in the
+// LLM's context on later turns.
+export function stripCitations(text: string): string {
+  return text
+    .replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, "")
+    .replace(/ +/g, " ")
+    .replace(/ ([.,;:!?])/g, "$1")
+    .trim();
+}
+
 export function parseSSEStream(
   onChunk: (text: string) => void,
   onDone: () => void

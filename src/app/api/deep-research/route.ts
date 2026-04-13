@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
 
         // Use only top sources to keep context manageable for Llama 8B
         const finalSystemPrompt =
-          "You are Speed Search. Write a well-structured answer using markdown.\n" +
+          "You are Pin, a helpful AI assistant. Write a well-structured answer using markdown.\n" +
           "IMPORTANT RULES:\n" +
           "1. Cite sources INLINE using [1], [2], [3] etc. right after each claim\n" +
           "2. Example: \"Rust prevents memory bugs at compile time [2] and performs like C++ [5].\"\n" +
