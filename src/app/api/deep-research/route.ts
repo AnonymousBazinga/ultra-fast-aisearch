@@ -1,8 +1,6 @@
 import { NextRequest } from "next/server";
 import { chatJimmy } from "@/lib/jimmy";
 
-export const runtime = "edge";
-
 const EXA_API_KEY = process.env.EXA_API_KEY || "";
 
 // Controlled research tree:

@@ -579,8 +579,16 @@ export default function Home() {
                 />
               ))}
             </div>
-            {/* Spacer tall enough so the last message can be scrolled to the top */}
-            <div ref={messagesEndRef} style={{ minHeight: "calc(100dvh - 160px)" }} />
+            {/* Spacer: only expanded while a new message is being processed, so
+                the scroll-to-top animation has room. Collapses after streaming
+                to avoid creating a full viewport of empty space below the response. */}
+            <div
+              ref={messagesEndRef}
+              style={{
+                minHeight: isLoading ? "calc(100dvh - 160px)" : "0",
+                transition: "min-height 200ms ease",
+              }}
+            />
           </div>
         )}
       </div>
